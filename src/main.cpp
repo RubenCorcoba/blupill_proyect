@@ -5,18 +5,15 @@
 ////////////////////////////////////////////////////////////////
 // Definiciones de tamaño de buffer
 constexpr int LEN_BUFFER_ADC = 16; // Número de muestras por mitad del buffer (total = 32)
-constexpr int LEN_BUFFER_SPI = LEN_BUFFER_ADC * 2; // Tamaño del buffer SPI (para 16 muestras de 16 bits)
-
 // Buffers y variables de control
-uint16_t buffer_ADC[LEN_BUFFER_ADC * 2]; // Buffer de 32 muestras dividido en dos mitades
-uint8_t spi_buffer[LEN_BUFFER_SPI];    // Buffer para transmisión SPI (32 bytes para 16 muestras)
+uint8_t buffer_ADC[2][LEN_BUFFER_ADC * 2]; // Dos Buffer con capacidad para LEN_BUFFER_ADC muestras (cada muestra son 2 bytes)
 volatile uint32_t cuenta_buffers_cargados = 0; // Contador de buffers llenados por DMA
 volatile uint32_t cuenta_buffers_vistos = 0;   // Contador de buffers procesados en el bucle principal
 
 // Declaración de funciones
 void ADC_DMA_Init(void);  // Inicialización del ADC con DMA
 void Ethernet_Init(void); // Inicialización del módulo Ethernet
-void transmite(uint16_t* datos); // Función para transmitir datos
+void transmite(uint8_t* datos,int nbytes); // Función para transmitir datos
 
 static EthernetClient client; // Objeto cliente para comunicación Ethernet
 
@@ -38,8 +35,7 @@ void loop(void) {
     }
 
     if (cuenta_buffers_cargados == cuenta_buffers_vistos + 1) { // Hay un buffer listo para transmitir
-        uint16_t* datos = &buffer_ADC[(cuenta_buffers_vistos % 2) * LEN_BUFFER_ADC]; // Seleccionar mitad del buffer
-        transmite(datos); // Transmitir los datos del buffer seleccionado
+        transmite(datos[cuenta_buffers_vistos % 2],LEN_BUFFER_ADC*2); // Transmitir los datos del medio buffer actual
         cuenta_buffers_vistos++; // Incrementar el contador de buffers procesados
     } else {
         // La diferencia es distinta a 1, desbordamiento detectado
@@ -47,7 +43,7 @@ void loop(void) {
     }
 }
 
-void transmite(uint16_t* datos) {
+void transmite(uint8_t* datos,int nbytes) {
     static byte ip_servidor[4] = {192, 168, 1, 55}; // IP del servidor al que se conecta
 
     // Intentamos conectarnos si no estamos conectados
@@ -56,13 +52,9 @@ void transmite(uint16_t* datos) {
     }
 
     if (client.connected()) {
-        // Convertir las muestras de 16 bits en bytes para enviar por SPI
-        for (int i = 0; i < LEN_BUFFER_ADC; i++) {
-            spi_buffer[i * 2] = (datos[i] >> 8) & 0xFF;    // Byte alto
-            spi_buffer[i * 2 + 1] = datos[i] & 0xFF;      // Byte bajo
-        }
-        client.write(spi_buffer, LEN_BUFFER_SPI); // Transmitir buffer al servidor
+        client.write(datos, nbytes); // Transmitir buffer al servidor
     }
+    
 }
 
 void ADC_DMA_Init(void) {
