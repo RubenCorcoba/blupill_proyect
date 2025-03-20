@@ -1,35 +1,38 @@
-// Versión 10 blupill_w5100_ethernet RDC
+// Versión 11 blupill_w5100_ethernet RDC
 #include <Arduino.h>
-#include <Ethernet.h>  // Librería para el W5100
+#include <Ethernet.h>  // Librería para el módulo W5100 Ethernet
 #include <SPI.h>
+
 ////////////////////////////////////////////////////////////////
 // Definiciones de tamaño de buffer
-constexpr int LEN_BUFFER_ADC = 16; // Número de muestras por mitad del buffer (total = 32)
-constexpr int LEN_BUFFER_SPI = LEN_BUFFER_ADC * 2; // Tamaño del buffer SPI (para 16 muestras de 16 bits)
+constexpr int NMUESTRAS_BUFFER = 16; // Número de muestras por cada mitad del buffer (total = 32 muestras)
 
 // Buffers y variables de control
-uint16_t buffer_ADC[LEN_BUFFER_ADC * 2]; // Buffer de 32 muestras dividido en dos mitades
-uint8_t spi_buffer[LEN_BUFFER_SPI];    // Buffer para transmisión SPI (32 bytes para 16 muestras)
-volatile uint32_t cuenta_buffers_cargados = 0; // Contador de buffers llenados por DMA
+uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2]; // Doble buffer: cada buffer tiene capacidad para NMUESTRAS_BUFFER muestras (cada muestra = 2 bytes)
+volatile uint32_t cuenta_buffers_cargados = 0; // Contador de buffers llenados por el DMA
 volatile uint32_t cuenta_buffers_vistos = 0;   // Contador de buffers procesados en el bucle principal
 
 // Declaración de funciones
 void ADC_DMA_Init(void);  // Inicialización del ADC con DMA
 void Ethernet_Init(void); // Inicialización del módulo Ethernet
-void transmite(uint16_t* datos); // Función para transmitir datos
+void transmite(uint8_t* datos, int nbytes); // Función para transmitir datos al servidor
 
 static EthernetClient client; // Objeto cliente para comunicación Ethernet
 
 // Prototipo de la interrupción DMA (declaración externa)
 extern "C" void DMA1_Channel1_IRQHandler(void);
 
+////////////////////////////////////////////////////////////////
+// Función setup: Configuración inicial
 void setup(void) {
-    ADC_DMA_Init(); // Inicializa el ADC con DMA
-    Ethernet_Init(); // Inicializa el módulo Ethernet
-    SPI.begin(); // Inicializa el módulo SPI
-    SPI.beginTransaction(SPISettings(14000000, MSBFIRST, SPI_MODE0));  // Configura el SPI a 14 MHz
+    ADC_DMA_Init();     // Configura el ADC con DMA para la adquisición de datos
+    Ethernet_Init();    // Configura el módulo Ethernet
+    SPI.begin();        // Inicializa el módulo SPI
+    SPI.beginTransaction(SPISettings(14000000, MSBFIRST, SPI_MODE0)); // Configura SPI a 14 MHz
 }
 
+////////////////////////////////////////////////////////////////
+// Función loop: Ciclo principal del programa
 void loop(void) {
     // Verificar si hay un buffer listo para transmitir
     if (cuenta_buffers_cargados == cuenta_buffers_vistos) {
@@ -37,89 +40,90 @@ void loop(void) {
         return;
     }
 
-    if (cuenta_buffers_cargados == cuenta_buffers_vistos + 1) { // Hay un buffer listo para transmitir
-        uint16_t* datos = &buffer_ADC[(cuenta_buffers_vistos % 2) * LEN_BUFFER_ADC]; // Seleccionar mitad del buffer
-        transmite(datos); // Transmitir los datos del buffer seleccionado
+    // Si hay un buffer listo para transmisión
+    if (cuenta_buffers_cargados == cuenta_buffers_vistos + 1) {
+        // Seleccionar el buffer correcto en base a los contadores
+        transmite(buffer_ADC[cuenta_buffers_vistos % 2], NMUESTRAS_BUFFER * 2); // Transmitir los datos del buffer actual
         cuenta_buffers_vistos++; // Incrementar el contador de buffers procesados
     } else {
-        // La diferencia es distinta a 1, desbordamiento detectado
-        cuenta_buffers_vistos = cuenta_buffers_cargados; // Sincronizar contadores para recuperar el estado y evitar inconsistencias.
+        // Detectar desbordamiento en el procesamiento de buffers
+        cuenta_buffers_vistos = cuenta_buffers_cargados; // Sincronizar contadores para evitar inconsistencias
     }
 }
 
-void transmite(uint16_t* datos) {
+////////////////////////////////////////////////////////////////
+// Función para transmitir los datos al servidor
+void transmite(uint8_t* datos, int nbytes) {
     static byte ip_servidor[4] = {192, 168, 1, 55}; // IP del servidor al que se conecta
 
-    // Intentamos conectarnos si no estamos conectados
+    // Intentar conectarse si no hay conexión establecida
     if (!client.connected()) {
         client.connect(ip_servidor, 4000);
     }
 
+    // Si la conexión está activa, transmitir los datos
     if (client.connected()) {
-        // Convertir las muestras de 16 bits en bytes para enviar por SPI
-        for (int i = 0; i < LEN_BUFFER_ADC; i++) {
-            spi_buffer[i * 2] = (datos[i] >> 8) & 0xFF;    // Byte alto
-            spi_buffer[i * 2 + 1] = datos[i] & 0xFF;      // Byte bajo
-        }
-        client.write(spi_buffer, LEN_BUFFER_SPI); // Transmitir buffer al servidor
+        client.write(datos, nbytes); // Enviar buffer al servidor
     }
 }
 
+////////////////////////////////////////////////////////////////
+// Configuración del ADC con DMA
 void ADC_DMA_Init(void) {
-    // Habilita los relojes para ADC1, GPIOA y DMA1
-    RCC->APB2ENR |= RCC_APB2ENR_ADC1EN | RCC_APB2ENR_IOPAEN;  // Relojes para ADC1 y GPIOA
-    RCC->AHBENR |= RCC_AHBENR_DMA1EN;  // Reloj para DMA1
+    // Habilitar relojes para ADC1, GPIOA y DMA1
+    RCC->APB2ENR |= RCC_APB2ENR_ADC1EN | RCC_APB2ENR_IOPAEN; // Reloj para ADC1 y GPIOA
+    RCC->AHBENR |= RCC_AHBENR_DMA1EN;                       // Reloj para DMA1
 
-    // Configura el pin PA0 como entrada analógica
-    GPIOA->CRL &= ~(GPIO_CRL_CNF0 | GPIO_CRL_MODE0);  // PA0 como entrada analógica
+    // Configurar pin PA0 como entrada analógica
+    GPIOA->CRL &= ~(GPIO_CRL_CNF0 | GPIO_CRL_MODE0); // PA0 configurado como entrada analógica
 
-    // Ajusta el prescaler del ADC para obtener 9 MHz
-    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV8;  // Prescaler del ADC = PCLK2/8
+    // Configurar el ADC (prescaler y secuencia de conversión)
+    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV8; // Prescaler del ADC (PCLK2/8 = 9 MHz)
+    ADC1->SQR3 = 0;                    // Canal 0 (PA0) en la secuencia de conversión
+    ADC1->SMPR2 = ADC_SMPR2_SMP0_1;    // Tiempo de muestreo: 7.5 ciclos
+    ADC1->CR1 = 0;                     // Configuración inicial del ADC
+    ADC1->CR2 = ADC_CR2_ADON;          // Encender ADC
+    delay(1);                          // Esperar estabilización
+    ADC1->CR2 |= ADC_CR2_CAL;          // Calibración del ADC
+    while (ADC1->CR2 & ADC_CR2_CAL);   // Esperar a que termine la calibración
 
-    // Configura el ADC
-    ADC1->SQR3 = 0;  // Canal 0 (PA0) en la secuencia de conversión
-    ADC1->SMPR2 = ADC_SMPR2_SMP0_1;  // Tiempo de muestreo: 7.5 ciclos de reloj
-    ADC1->CR1 = 0;  // Configuración inicial del registro CR1 del ADC
-    ADC1->CR2 = ADC_CR2_ADON;  // Enciende el ADC
-    delay(1);  // Demora para estabilización
-    ADC1->CR2 |= ADC_CR2_CAL;  // Calibrar el ADC
-    while (ADC1->CR2 & ADC_CR2_CAL);  // Espera a que termine la calibración
-
-    // Habilita el modo continuo y DMA
+    // Configurar modo continuo y DMA
     ADC1->CR2 |= ADC_CR2_CONT | ADC_CR2_DMA;
-    ADC1->CR2 |= ADC_CR2_ADON;  // Enciende el ADC nuevamente
+    ADC1->CR2 |= ADC_CR2_ADON;         // Encender el ADC nuevamente
 
-    // Configura el DMA
-    DMA1_Channel1->CPAR = (uint32_t)&ADC1->DR;  // Dirección periférica del ADC1
-    DMA1_Channel1->CMAR = (uint32_t)buffer_ADC;  // Dirección de memoria (buffer ADC)
-    DMA1_Channel1->CNDTR = LEN_BUFFER_ADC * 2;  // Número de transferencias (32 muestras)
+    // Configuración del DMA para leer datos del ADC
+    DMA1_Channel1->CPAR = (uint32_t)&ADC1->DR;       // Dirección periférica (registro de datos del ADC)
+    DMA1_Channel1->CMAR = (uint32_t)buffer_ADC;      // Dirección de memoria (buffer ADC)
+    DMA1_Channel1->CNDTR = NMUESTRAS_BUFFER * 2 * 2; // Número de transferencias (32 muestras)
     DMA1_Channel1->CCR = DMA_CCR_MINC |  // Incremento automático de memoria
                          DMA_CCR_CIRC |  // Modo circular
-                         DMA_CCR_HTIE |  // Interrupción de mitad de transferencia
-                         DMA_CCR_TCIE |  // Interrupción de transferencia completa
+                         DMA_CCR_HTIE |  // Interrupción en mitad de transferencia
+                         DMA_CCR_TCIE |  // Interrupción en transferencia completa
                          DMA_CCR_EN |    // Habilitar canal
-                         DMA_CCR_MSIZE_0 |  // Tamaño de memoria: 16 bits
-                         DMA_CCR_PSIZE_0;   // Tamaño periférico: 16 bits
+                         DMA_CCR_MSIZE_0 | // Tamaño de memoria: 16 bits
+                         DMA_CCR_PSIZE_0;  // Tamaño periférico: 16 bits
 
-    NVIC_EnableIRQ(DMA1_Channel1_IRQn);  // Habilitar interrupción del canal DMA1
+    NVIC_EnableIRQ(DMA1_Channel1_IRQn); // Habilitar interrupción del canal DMA1
 }
 
+////////////////////////////////////////////////////////////////
+// Configuración del módulo Ethernet
 void Ethernet_Init(void) {
-    // Inicializa el módulo Ethernet W5100
     static byte mac[6] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED}; // Dirección MAC
-    static byte ip[4] = {192, 168, 1, 100}; // Dirección IP local
-    Ethernet.begin(mac, ip);  // Configura la dirección MAC e IP
+    static byte ip[4] = {192, 168, 1, 100};                   // Dirección IP local
+    Ethernet.begin(mac, ip);                                  // Configurar MAC e IP
 }
 
-// Interrupción del DMA1 (canal 1)
+////////////////////////////////////////////////////////////////
+// Interrupción DMA (canal 1)
 void DMA1_Channel1_IRQHandler(void) {
-    if (DMA1->ISR & DMA_ISR_HTIF1) {  // Verifica bandera de mitad de transferencia
-        DMA1->IFCR |= DMA_IFCR_CHTIF1; // Limpia bandera
-        cuenta_buffers_cargados++;    // Incrementa buffers cargados
+    if (DMA1->ISR & DMA_ISR_HTIF1) {  // Verificar bandera de mitad de transferencia
+        DMA1->IFCR |= DMA_IFCR_CHTIF1; // Limpiar bandera de interrupción
+        cuenta_buffers_cargados++;    // Incrementar contador de buffers cargados
     }
 
-    if (DMA1->ISR & DMA_ISR_TCIF1) {  // Verifica bandera de transferencia completa
-        DMA1->IFCR |= DMA_IFCR_CTCIF1; // Limpia bandera
-        cuenta_buffers_cargados++;    // Incrementa buffers cargados
+    if (DMA1->ISR & DMA_ISR_TCIF1) {  // Verificar bandera de transferencia completa
+        DMA1->IFCR |= DMA_IFCR_CTCIF1; // Limpiar bandera de interrupción
+        cuenta_buffers_cargados++;    // Incrementar contador de buffers cargados
     }
 }
