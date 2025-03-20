@@ -54,11 +54,16 @@ void loop(void) {
 ////////////////////////////////////////////////////////////////
 // Función para transmitir los datos al servidor
 void transmite(uint8_t* datos, int nbytes) {
-    static byte ip_servidor[4] = {192, 168, 1, 55}; // IP del servidor al que se conecta
+    static byte ip_servidor[4] = { 192,168,1,55 }; // IP del servidor al que se conecta
 
     // Intentar conectarse si no hay conexión establecida
     if (!client.connected()) {
-        client.connect(ip_servidor, 4000);
+        if (!client.connect(ip_servidor, 4000)) {
+            Serial.println("No se pudo conectar al servidor.");
+            return; // Salir si no se pudo conectar
+        } else {
+            Serial.println("Conexión establecida con el servidor.");
+        }
     }
 
     // Si la conexión está activa, transmitir los datos
@@ -110,7 +115,7 @@ void ADC_DMA_Init(void) {
 // Configuración del módulo Ethernet
 void Ethernet_Init(void) {
     static byte mac[6] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED}; // Dirección MAC
-    static byte ip[4] = {192, 168, 1, 100};                   // Dirección IP local
+    static byte ip[4] = {192, 168, 1, 1};                   // Dirección IP local
     Ethernet.begin(mac, ip);                                  // Configurar MAC e IP
 }
 
