@@ -5,7 +5,7 @@
 
 ////////////////////////////////////////////////////////////////
 // Definiciones de tamaño de buffer
-constexpr int NMUESTRAS_BUFFER = 8; // Número de muestras por cada mitad del buffer (total = 32 muestras)
+constexpr int NMUESTRAS_BUFFER = 8; // Número de muestras por cada mitad del buffer 
 
 // Buffers y variables de control
 uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2]; // Doble buffer: cada buffer tiene capacidad para NMUESTRAS_BUFFER muestras (cada muestra = 2 bytes)
@@ -25,6 +25,8 @@ extern "C" void DMA1_Channel1_IRQHandler(void);
 ////////////////////////////////////////////////////////////////
 // Función setup: Configuración inicial
 void setup(void) {
+    pinMode(LED_BUILTIN,OUTPUT);
+    digitalWrite(LED_BUILTIN,1);
     ADC_DMA_Init();     // Configura el ADC con DMA para la adquisición de datos
     Ethernet_Init();    // Configura el módulo Ethernet
     SPI.begin();        // Inicializa el módulo SPI
@@ -42,9 +44,11 @@ void loop(void) {
 
     // Si hay un buffer listo para transmisión
     if (cuenta_buffers_cargados == cuenta_buffers_vistos + 1) {
+        digitalWrite(LED_BUILTIN,0);
         // Seleccionar el buffer correcto en base a los contadores
         transmite(buffer_ADC[cuenta_buffers_vistos % 2], NMUESTRAS_BUFFER * 2); // Transmitir los datos del buffer actual
         cuenta_buffers_vistos++; // Incrementar el contador de buffers procesados
+        digitalWrite(LED_BUILTIN,1);
     } else {
         // Detectar desbordamiento en el procesamiento de buffers
         cuenta_buffers_vistos = cuenta_buffers_cargados; // Sincronizar contadores para evitar inconsistencias
