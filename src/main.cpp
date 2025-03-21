@@ -35,7 +35,7 @@ void loop(void) {
     }
 
     if (cuenta_buffers_cargados == cuenta_buffers_vistos + 1) { // Hay un buffer listo para transmitir
-        transmite(datos[cuenta_buffers_vistos % 2],LEN_BUFFER_ADC*2); // Transmitir los datos del medio buffer actual
+        transmite(buffer_ADC[cuenta_buffers_vistos % 2],LEN_BUFFER_ADC*2); // Transmitir los datos del medio buffer actual
         cuenta_buffers_vistos++; // Incrementar el contador de buffers procesados
     } else {
         // La diferencia es distinta a 1, desbordamiento detectado
@@ -44,7 +44,7 @@ void loop(void) {
 }
 
 void transmite(uint8_t* datos,int nbytes) {
-    static byte ip_servidor[4] = {192, 168, 1, 55}; // IP del servidor al que se conecta
+    static byte ip_servidor[4] = {192, 168, 1, 120}; // IP del servidor al que se conecta
 
     // Intentamos conectarnos si no estamos conectados
     if (!client.connected()) {
