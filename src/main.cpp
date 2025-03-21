@@ -5,7 +5,7 @@
 
 ////////////////////////////////////////////////////////////////
 // Definiciones de tamaño de buffer
-constexpr int NMUESTRAS_BUFFER = 16; // Número de muestras por cada mitad del buffer (total = 32 muestras)
+constexpr int NMUESTRAS_BUFFER = 8; // Número de muestras por cada mitad del buffer (total = 32 muestras)
 
 // Buffers y variables de control
 uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2]; // Doble buffer: cada buffer tiene capacidad para NMUESTRAS_BUFFER muestras (cada muestra = 2 bytes)
@@ -54,22 +54,16 @@ void loop(void) {
 ////////////////////////////////////////////////////////////////
 // Función para transmitir los datos al servidor
 void transmite(uint8_t* datos, int nbytes) {
-    static byte ip_servidor[4] = { 192,168,1,55 }; // IP del servidor al que se conecta
+    static byte ip_servidor[4] = { 192,168,1,120 }; // IP del servidor al que se conecta
 
     // Intentar conectarse si no hay conexión establecida
     if (!client.connected()) {
-        if (!client.connect(ip_servidor, 4000)) {
-            Serial.println("No se pudo conectar al servidor.");
-            return; // Salir si no se pudo conectar
-        } else {
-            Serial.println("Conexión establecida con el servidor.");
-        }
+        client.connect(ip_servidor, 4000);
+        return;
     }
 
     // Si la conexión está activa, transmitir los datos
-    if (client.connected()) {
-        client.write(datos, nbytes); // Enviar buffer al servidor
-    }
+    client.write(datos, nbytes); // Enviar buffer al servidor
 }
 
 ////////////////////////////////////////////////////////////////
@@ -115,7 +109,7 @@ void ADC_DMA_Init(void) {
 // Configuración del módulo Ethernet
 void Ethernet_Init(void) {
     static byte mac[6] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED}; // Dirección MAC
-    static byte ip[4] = {192, 168, 1, 1};                   // Dirección IP local
+    static byte ip[4] = {192, 168, 1, 33};                   // Dirección IP local
     Ethernet.begin(mac, ip);                                  // Configurar MAC e IP
 }
 
