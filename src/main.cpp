@@ -97,7 +97,7 @@ void ADC_DMA_Init(void) {
     // Configuración del DMA para leer datos del ADC
     DMA1_Channel1->CPAR = (uint32_t)&ADC1->DR;       // Dirección periférica (registro de datos del ADC)
     DMA1_Channel1->CMAR = (uint32_t)buffer_ADC;      // Dirección de memoria (buffer ADC)
-    DMA1_Channel1->CNDTR = NMUESTRAS_BUFFER * 2 * 2; // Número de transferencias (32 muestras)
+    DMA1_Channel1->CNDTR = NMUESTRAS_BUFFER * 2; // Número de transferencias (32 muestras)
     DMA1_Channel1->CCR = DMA_CCR_MINC |  // Incremento automático de memoria
                          DMA_CCR_CIRC |  // Modo circular
                          DMA_CCR_HTIE |  // Interrupción en mitad de transferencia
