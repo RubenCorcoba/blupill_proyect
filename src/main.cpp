@@ -1,11 +1,11 @@
-// Versión 11 blupill_w5100_ethernet RDC
+// Versión 12 blupill_w5100_ethernet RDC
 #include <Arduino.h>
 #include <Ethernet.h>  // Librería para el módulo W5100 Ethernet
 #include <SPI.h>
 
 ////////////////////////////////////////////////////////////////
 // Definiciones de tamaño de buffer
-constexpr int NMUESTRAS_BUFFER = 8; // Número de muestras por cada mitad del buffer 
+constexpr int NMUESTRAS_BUFFER = 256; // Número de muestras por cada mitad del buffer 
 
 // Buffers y variables de control
 uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2]; // Doble buffer: cada buffer tiene capacidad para NMUESTRAS_BUFFER muestras (cada muestra = 2 bytes)
@@ -81,9 +81,9 @@ void ADC_DMA_Init(void) {
     GPIOA->CRL &= ~(GPIO_CRL_CNF0 | GPIO_CRL_MODE0); // PA0 configurado como entrada analógica
 
     // Configurar el ADC (prescaler y secuencia de conversión)
-    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV8; // Prescaler del ADC (PCLK2/8 = 9 MHz)
+    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV2; // Prescaler del ADC (PCLK2/2 = 4 MHz)
     ADC1->SQR3 = 0;                    // Canal 0 (PA0) en la secuencia de conversión
-    ADC1->SMPR2 = ADC_SMPR2_SMP0_1;    // Tiempo de muestreo: 7.5 ciclos
+    ADC1->SMPR2 = 0;    // Tiempo de muestreo: 1.5 ciclos
     ADC1->CR1 = 0;                     // Configuración inicial del ADC
     ADC1->CR2 = ADC_CR2_ADON;          // Encender ADC
     delay(1);                          // Esperar estabilización
