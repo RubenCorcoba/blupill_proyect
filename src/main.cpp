@@ -8,7 +8,7 @@
 constexpr int NMUESTRAS_BUFFER = 256; // Número de muestras por cada mitad del buffer (cada muestra = 2 bytes)
 
 // Buffers y variables de control
-duint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2]; // Doble buffer circular
+uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2]; // Doble buffer circular
 volatile uint32_t cuenta_buffers_cargados = 0; // Contador de buffers llenados por el DMA
 volatile uint32_t cuenta_buffers_vistos = 0;   // Contador de buffers procesados en el bucle principal
 
@@ -27,6 +27,7 @@ extern "C" void DMA1_Channel1_IRQHandler(void);
 void setup(void) {
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, 1);
+
     ADC_DMA_Init();     // Configura el ADC con DMA para adquisición de datos
     Ethernet_Init();    // Configura el módulo Ethernet
     SPI.begin();        // Inicializa el módulo SPI
