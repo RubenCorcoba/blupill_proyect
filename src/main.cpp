@@ -28,14 +28,14 @@ void setup(void) {
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, 1);
     
-    ADC_DMA_Init();     // Configura el ADC con DMA para adquisición de datos
-    Ethernet_Init();    // Configura el módulo Ethernet
     SPI.setMOSI(PB5);
     SPI.setMISO(PB4);
     SPI.setSCLK(PB3);
     SPI.setSSEL(PA15);
+
     SPI.begin();        // Inicializa el módulo SPI
-    SPI.beginTransaction(SPISettings(14000000, MSBFIRST, SPI_MODE0)); // Configura SPI a 14 MHz
+    ADC_DMA_Init();     // Configura el ADC con DMA para adquisición de datos
+    Ethernet_Init();    // Configura el módulo Ethernet
 }
 
 
