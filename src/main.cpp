@@ -27,23 +27,13 @@ extern "C" void DMA1_Channel1_IRQHandler(void);
 void setup(void) {
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, 1);
-
-    // remap sp1 ----> A15-NSS | B3-SCK  | B4-MISO | B5-MOSI
-    RCC -> APB2ENR |= RCC_APB2ENR_AFIOEN | RCC_APB2ENR_IOPBEN | RCC_APB2ENR_IOPAEN; // Habilitar reloj para el AFIO
-    AFIO -> MAPR |= AFIO_MAPR_SPI1_REMAP; // Hacer el remapeo
-    AFIO -> MAPR |= AFIO_MAPR_SWJ_CFG_JTAGDISABLE; // desabilitar JTAG (pines PB3 y PB4)
-    // Configurar los pines remapeados para SPI1 como Alternate Function Push-Pull
-    GPIOA->CRH = (GPIOA->CRH & ~(GPIO_CRH_MODE15 | GPIO_CRH_CNF15)) |
-                 (GPIO_CRH_MODE15_1 | GPIO_CRH_CNF15_1); // PA15 (NSS)
-
-    GPIOB->CRL = (GPIOB->CRL & ~(GPIO_CRL_MODE3 | GPIO_CRL_CNF3)) |
-                 (GPIO_CRL_MODE3_1 | GPIO_CRL_CNF3_1);  // PB3 (SCK)
-
-    GPIOB->CRL = (GPIOB->CRL & ~(GPIO_CRL_MODE5 | GPIO_CRL_CNF5)) |
-                 (GPIO_CRL_MODE5_1 | GPIO_CRL_CNF5_1);  // PB5 (MOSI)
-
+    
     ADC_DMA_Init();     // Configura el ADC con DMA para adquisición de datos
     Ethernet_Init();    // Configura el módulo Ethernet
+    SPI.setMOSI(PB5);
+    SPI.setMISO(PB4);
+    SPI.setSCLK(PB3);
+    SPI.setSSEL(PA15);
     SPI.begin();        // Inicializa el módulo SPI
     SPI.beginTransaction(SPISettings(14000000, MSBFIRST, SPI_MODE0)); // Configura SPI a 14 MHz
 }
