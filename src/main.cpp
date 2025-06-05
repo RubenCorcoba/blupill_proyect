@@ -14,7 +14,7 @@ volatile uint32_t cuenta_buffers_vistos = 0;   // Contador de buffers procesados
 
 // Declaración de funciones
 void ADC_DMA_Init(void);      // Inicialización del ADC con DMA
-void Ethernet_Init(void);     // Inicialización del módulo Ethernet
+void Ethernet_Init(uint8_t pinSS);     // Inicialización del módulo Ethernet
 void transmite(uint8_t* datos, int nbytes); // Función para transmitir datos al servidor
 
 static EthernetClient client; // Objeto cliente para comunicación Ethernet
@@ -31,11 +31,9 @@ void setup(void) {
     SPI.setMOSI(PB5);
     SPI.setMISO(PB4);
     SPI.setSCLK(PB3);
-    SPI.setSSEL(PA15);
 
-    SPI.begin();        // Inicializa el módulo SPI
+    Ethernet_Init(PA15);    // Configura el módulo Ethernet, inicializa SPI
     ADC_DMA_Init();     // Configura el ADC con DMA para adquisición de datos
-    Ethernet_Init();    // Configura el módulo Ethernet
 }
 
 
@@ -118,10 +116,10 @@ void ADC_DMA_Init(void) {
 
 ////////////////////////////////////////////////////////////////
 // Configuración del módulo Ethernet (W5100)
-void Ethernet_Init(void) {
+void Ethernet_Init(uint8_t pinSS) {
     static byte mac[6] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED}; // MAC arbitraria
     static byte ip[4] = {192, 168, 1, 33}; // IP fija del dispositivo
-
+    Ethernet.init(pinSS);
     Ethernet.begin(mac, ip); // Inicia el módulo con esos parámetros
     delay(100); // Esperar a que se configure correctamente
 }
