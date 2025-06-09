@@ -28,11 +28,11 @@ void setup(void) {
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, 1);
     
-    SPI.setMOSI(PB5);
-    SPI.setMISO(PB4);
-    SPI.setSCLK(PB3);
+    SPI.setMOSI(PB15);
+    SPI.setMISO(PB14);
+    SPI.setSCLK(PB13);
 
-    Ethernet_Init(PA15);    // Configura el módulo Ethernet, inicializa SPI
+    Ethernet_Init(PB12);    // Configura el módulo Ethernet, inicializa SPI
     ADC_DMA_Init();     // Configura el ADC con DMA para adquisición de datos
 }
 
@@ -83,7 +83,7 @@ void ADC_DMA_Init(void) {
     GPIOA->CRL &= ~(GPIO_CRL_CNF0 | GPIO_CRL_MODE0);
 
     // Configurar ADC:
-    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV2; // Reloj ADC = PCLK2 / 2
+    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6; // Reloj ADC = PCLK2 / 6 = 12MHz
     ADC1->SQR3 = 0; // Canal 0 (PA0)
     ADC1->SMPR2 = 0; // Tiempo de muestreo mínimo (1.5 ciclos)
     ADC1->CR1 = 0; // Sin configuración especial
