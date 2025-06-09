@@ -5,7 +5,7 @@
 
 ////////////////////////////////////////////////////////////////
 // Definiciones de tamaño de buffer
-constexpr int NMUESTRAS_BUFFER = 256; // Número de muestras por cada mitad del buffer (cada muestra = 2 bytes)
+constexpr int NMUESTRAS_BUFFER = 512; // Número de muestras por cada mitad del buffer (cada muestra = 2 bytes)
 
 // Buffers y variables de control
 uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2]; // Doble buffer circular
@@ -27,6 +27,9 @@ extern "C" void DMA1_Channel1_IRQHandler(void);
 void setup(void) {
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, 1);
+
+    pinMode(PB9, OUTPUT); 
+    digitalWrite(PB9, LOW);
     
     SPI.setMOSI(PB15);
     SPI.setMISO(PB14);
@@ -85,7 +88,7 @@ void ADC_DMA_Init(void) {
     // Configurar ADC:
     RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6; // Reloj ADC = PCLK2 / 6 = 12MHz
     ADC1->SQR3 = 0; // Canal 0 (PA0)
-    ADC1->SMPR2 = 0; // Tiempo de muestreo mínimo (1.5 ciclos)
+    ADC1->SMPR2 = 0b101 << ADC_SMPR2_SMP0_Pos; // Tiempo de muestreo (55.5 ciclos)
     ADC1->CR1 = 0; // Sin configuración especial
 
     ADC1->CR2 = ADC_CR2_ADON; // Encender ADC
@@ -131,11 +134,13 @@ extern "C" void DMA1_Channel1_IRQHandler(void) {
     if (DMA1->ISR & DMA_ISR_HTIF1) {
         DMA1->IFCR |= DMA_IFCR_CHTIF1; // Limpiar bandera
         cuenta_buffers_cargados++;    // Registrar nuevo buffer disponible
+        digitalWrite((PB9), !digitalRead(PB9));  // Toggle
     }
 
     // Interrupción por buffer completo lleno
     if (DMA1->ISR & DMA_ISR_TCIF1) {
         DMA1->IFCR |= DMA_IFCR_CTCIF1; // Limpiar bandera
         cuenta_buffers_cargados++;    // Registrar nuevo buffer disponible
+        digitalWrite(PB9, !digitalRead(PB9));  // Toggle
     }
 }
