@@ -106,7 +106,7 @@ void bsp_init()
     SPI.setMOSI(PB15);
     SPI.setMISO(PB14);
     SPI.setSCLK(PB13);
-
+    RCC->AHBENR |= RCC_AHBENR_DMA1EN;
     Ethernet_Init(PB12);    // Configura el módulo Ethernet, inicializa SPI
     ADC_DMA_Init();     // Configura el ADC con DMA para adquisición de datos
 }
