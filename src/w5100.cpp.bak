@@ -305,14 +305,16 @@ static void transferSpi2DmaBegin(void)
 }
 static void transferSpi2DmaTransfer(uint8_t *source,uint8_t *dest,uint16_t len)
 {
-	while(SPI2->SR & SPI_SR_RXNE) (void)SPI2->DR;
+	while(SPI2->SR & SPI_SR_BSY);// Espera puerto listo
+	(void)SPI2->DR;
+    (void)SPI2->SR; // limpia posible condicion overrun
 	DMA1_Channel5->CMAR=(uint32_t)source;
 	DMA1_Channel5->CNDTR=len;
 	DMA1_Channel4->CMAR=(uint32_t)dest;
 	DMA1_Channel4->CNDTR=len;
 
-	DMA1_Channel5->CCR=DMA_CCR_MINC | DMA_CCR_DIR |DMA_CCR_EN ;//0x91;
 	DMA1_Channel4->CCR=DMA_CCR_MINC | DMA_CCR_EN;
+	DMA1_Channel5->CCR=DMA_CCR_MINC | DMA_CCR_DIR |DMA_CCR_EN ;//0x91;
 
 	while(DMA1_Channel5->CNDTR || DMA1_Channel4->CNDTR);
 	while(SPI2->SR & SPI_SR_BSY);
