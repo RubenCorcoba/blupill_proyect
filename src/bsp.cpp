@@ -1,4 +1,5 @@
 #include "bsp.hpp"
+#include "nco.h"
 #include <Arduino.h>
 #include <SPI.h>
 #include <Ethernet.h>
@@ -15,6 +16,7 @@ uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2]; // Doble buffer circular
 volatile uint32_t cuenta_buffers_cargados = 0; // Contador de buffers llenados por el DMA
 volatile uint32_t cuenta_buffers_vistos = 0;   // Contador de buffers procesados en el bucle principal
 
+static void DownConverter_init(void);
 
 ////////////////////////////////////////////////////////////////
 // Función para transmitir los datos al servidor
@@ -44,7 +46,7 @@ static void ADC_DMA_Init(void) {
     // Configurar ADC:
     RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6; // Reloj ADC = PCLK2 / 6 = 12MHz
     ADC1->SQR3 = 0; // Canal 0 (PA0)
-    ADC1->SMPR2 = 0b101 << ADC_SMPR2_SMP0_Pos; // Tiempo de muestreo (55.5 ciclos)
+    ADC1->SMPR2 = 4 << ADC_SMPR2_SMP0_Pos; // Tiempo de muestreo (41.5 ciclos)
     ADC1->CR1 = 0; // Sin configuración especial
 
     ADC1->CR2 = ADC_CR2_ADON; // Encender ADC
@@ -52,25 +54,12 @@ static void ADC_DMA_Init(void) {
     ADC1->CR2 |= ADC_CR2_CAL; // Calibrar ADC
     while (ADC1->CR2 & ADC_CR2_CAL); // Esperar fin calibración
 
-    // Modo continuo + DMA habilitado
-    ADC1->CR2 |= ADC_CR2_CONT | ADC_CR2_DMA;
+    // Modo continuo
+    ADC1->CR1 = ADC_CR1_EOCIE; // Habilita interrupcion?
+    ADC1->CR2 |= ADC_CR2_CONT;
     ADC1->CR2 |= ADC_CR2_ADON; // Re-encender ADC
 
-    // Configurar DMA para leer del ADC y guardar en buffer
-    DMA1_Channel1->CPAR = (uint32_t)&ADC1->DR; // Dirección del registro del ADC
-    DMA1_Channel1->CMAR = (uint32_t)buffer_ADC; // Dirección base del buffer doble
-    DMA1_Channel1->CNDTR = NMUESTRAS_BUFFER * 2; 
-
-    // Configurar DMA1 Canal 1
-    DMA1_Channel1->CCR = DMA_CCR_MINC |  // Incrementar dirección en RAM
-                         DMA_CCR_CIRC | // Modo circular (doble buffer)
-                         DMA_CCR_HTIE | // Interrupción mitad del buffer
-                         DMA_CCR_TCIE | // Interrupción fin del buffer
-                         DMA_CCR_EN |   // Activar DMA
-                         DMA_CCR_MSIZE_0 | // Memoria de 16 bits
-                         DMA_CCR_PSIZE_0;  // Periférico de 16 bits
-
-    NVIC_EnableIRQ(DMA1_Channel1_IRQn); // Habilitar interrupción del canal 1 del DMA
+    NVIC_EnableIRQ(ADC1_2_IRQn); // Habilitar interrupción de ADC
 }
 
 ////////////////////////////////////////////////////////////////
@@ -85,20 +74,82 @@ static void Ethernet_Init(uint8_t pinSS) {
 
 ////////////////////////////////////////////////////////////////
 // Manejador de interrupciones del DMA1 Canal 1
-extern "C" void DMA1_Channel1_IRQHandler(void) {
-    // Interrupción por mitad del buffer lleno
-    if (DMA1->ISR & DMA_ISR_HTIF1) {
-        DMA1->IFCR |= DMA_IFCR_CHTIF1; // Limpiar bandera
-        cuenta_buffers_cargados++;    // Registrar nuevo buffer disponible
-        digitalWrite((PB9), !digitalRead(PB9));  // Toggle
-    }
+// extern "C" void DMA1_Channel1_IRQHandler(void) {
+//     // Interrupción por mitad del buffer lleno
+//     if (DMA1->ISR & DMA_ISR_HTIF1) {
+//         DMA1->IFCR |= DMA_IFCR_CHTIF1; // Limpiar bandera
+//         cuenta_buffers_cargados++;    // Registrar nuevo buffer disponible
+//         digitalWrite((PB9), !digitalRead(PB9));  // Toggle
+//     }
 
-    // Interrupción por buffer completo lleno
-    if (DMA1->ISR & DMA_ISR_TCIF1) {
-        DMA1->IFCR |= DMA_IFCR_CTCIF1; // Limpiar bandera
-        cuenta_buffers_cargados++;    // Registrar nuevo buffer disponible
-        digitalWrite(PB9, !digitalRead(PB9));  // Toggle
+//     // Interrupción por buffer completo lleno
+//     if (DMA1->ISR & DMA_ISR_TCIF1) {
+//         DMA1->IFCR |= DMA_IFCR_CTCIF1; // Limpiar bandera
+//         cuenta_buffers_cargados++;    // Registrar nuevo buffer disponible
+//         digitalWrite(PB9, !digitalRead(PB9));  // Toggle
+//     }
+// }
+
+static struct DownConverter_s{
+    int32_t Ai;
+    int32_t Aq;
+    int32_t Bi;
+    int32_t Bq;
+    int32_t Ci;
+    int32_t Cq;
+    int32_t f;
+    int32_t k;
+    Nco nco;
+}downConverter;
+
+static void DownConverter_init(void)
+{
+    downConverter.Ai=0;
+    downConverter.Aq=0;
+    downConverter.Bi=0;
+    downConverter.Bq=0;
+    downConverter.Ci=0;
+    downConverter.Cq=0;
+    downConverter.f=0;
+    downConverter.k=0;
+    downConverter.nco = Nco_create(27,200);
+}
+
+static void DownConverter_output(int32_t real,int32_t imag)
+{
+
+}
+
+static void DownConverter_tick(void)
+{
+    int32_t m,xi,xq,mi,mq;
+
+    xi = Nco_getReal(downConverter.nco);
+    xq = Nco_getImag(downConverter.nco);
+    mi = (m*xi)>> 15;
+    mq = (m*xq)>> 15;
+    Nco_tick(downConverter.nco);
+
+    downConverter.Ai += mi;
+    downConverter.Aq += mq;
+
+    if (downConverter.f==6){
+        DownConverter_output(downConverter.Ai-downConverter.Ci, downConverter.Aq-downConverter.Cq);
+        downConverter.Ci = downConverter.Bi;
+        downConverter.Cq = downConverter.Bq;
+        downConverter.Bi = downConverter.Ai;
+        downConverter.Bq = downConverter.Aq;
+        downConverter.f = 0;
+    } else {
+        downConverter.f++;
     }
+}
+
+extern "C" void ADC1_2_IRQHandler(void)
+{
+    DownConverter_tick();
+    ADC1->SR = 0;
+    // resetear bandera de irq
 }
 
 void bsp_init()
