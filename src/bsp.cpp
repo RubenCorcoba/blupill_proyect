@@ -1,5 +1,5 @@
 #include "bsp.hpp"
-#include "nco.h"
+#include "blocks.h"
 #include <Arduino.h>
 #include <SPI.h>
 #include <Ethernet.h>
@@ -90,70 +90,81 @@ static void Ethernet_Init(uint8_t pinSS) {
 //     }
 // }
 
+// DownConverter
+//            nco                                         cpol1i,cpol1q
+//  m-|*exp(-2j*pi*30kHz/fsamp*k)|-|(int32_t)|-|<<4|-|polo(r=24/25,fp/fsamp=3/49)|...
+//        cpol2i,cpol2q               dcpol1i,dcpol1q        dcpol2i,dcpol2q
+//   -|polo(r=24/25,fp/fsamp=3/49)|-|polo(r=1,fp/fsamp=0)|-|polo(r=1,fp/fsamp=0)|...
+//                      comb1i,comb1q     comb2i,comb2q
+//   -|downsample(7)|-|comb(d=2)      |-|comb(d=2)      |-|>>(4+13)|-|(int16_t)|-msal
+//
 static struct DownConverter_s{
-    int32_t Ai;
-    int32_t Aq;
-    int32_t Bi;
-    int32_t Bq;
-    int32_t Ci;
-    int32_t Cq;
-    int32_t f;
-    int32_t k;
-    Nco nco;
+    struct NcoState_s nco;
+    struct OrderTwoState_s cpol1i,cpol1q,cpol2i,cpol2q,comb1i,comb1q,comb2i,comb2q;
+    struct OrderOneState_s dcpol1i,dcpol1q,dcpol2i,dcpol2q;
+    unsigned downsample_counter;
 }downConverter;
 
 static void DownConverter_init(void)
 {
-    downConverter.Ai=0;
-    downConverter.Aq=0;
-    downConverter.Bi=0;
-    downConverter.Bq=0;
-    downConverter.Ci=0;
-    downConverter.Cq=0;
-    downConverter.f=0;
-    downConverter.k=0;
-    downConverter.nco = Nco_create(27,200);
+    downConverter = (struct DownConverter_s){};
+    nco_init(&downConverter.nco,30*6*(12.5+41.5),72000); //< 30 kHz
 }
 
-static void DownConverter_output(int32_t real,int32_t imag)
+static void DownConverter_output(int32_t i,int32_t q)
 {
-
+    (void)i;
+    (void)q;
 }
 
 static void DownConverter_tick(void)
 {
-    int32_t m,xi,xq,mi,mq;
+    constexpr int GUARD_BITS = 4;
+    struct ComplexInt16_s x;
+    int32_t m,mi,mq;
+    // DR Zero<15..12>#Unsigned<11..0>
+    // Convert to signed and extend to 32 bit
+    uint16_t adc_in = ADC1->DR;
+    constexpr uint16_t bits_signo = 0x1f<<11;
+    m = (int16_t)(adc_in&(1<<11) ? adc_in&(~bits_signo) : adc_in | bits_signo);
 
-    xi = Nco_getReal(downConverter.nco);
-    xq = Nco_getImag(downConverter.nco);
-    mi = (m*xi)>> 15;
-    mq = (m*xq)>> 15;
-    Nco_tick(downConverter.nco);
+    nco_sample(&downConverter.nco,&x);
+    mi = (m*x.real) >> (15-GUARD_BITS);
+    mq = (m*x.imag) >> (15-GUARD_BITS);
 
-    downConverter.Ai += mi;
-    downConverter.Aq += mq;
+    mi = pole_24r25_3f49(mi,&downConverter.cpol1i);
+    mq = pole_24r25_3f49(mq,&downConverter.cpol1q);
+    mi = pole_24r25_3f49(mi,&downConverter.cpol2i);
+    mq = pole_24r25_3f49(mq,&downConverter.cpol2q);
+    mi = pole_1r_0f(mi,&downConverter.dcpol1i);
+    mq = pole_1r_0f(mq,&downConverter.dcpol1q);
+    mi = pole_1r_0f(mi,&downConverter.dcpol2i);
+    mq = pole_1r_0f(mq,&downConverter.dcpol2q);
 
-    if (downConverter.f==6){
-        DownConverter_output(downConverter.Ai-downConverter.Ci, downConverter.Aq-downConverter.Cq);
-        downConverter.Ci = downConverter.Bi;
-        downConverter.Cq = downConverter.Bq;
-        downConverter.Bi = downConverter.Ai;
-        downConverter.Bq = downConverter.Aq;
-        downConverter.f = 0;
+    if (downConverter.downsample_counter==6){
+        mi = comb_2d(mi,&downConverter.comb1i);
+        mq = comb_2d(mq,&downConverter.comb1q);
+        mi = comb_2d(mi,&downConverter.comb2i);
+        mq = comb_2d(mq,&downConverter.comb2q);
+        mi = mi >> (13+GUARD_BITS);
+        mq = mq >> (13+GUARD_BITS);
+        DownConverter_output(mi,mq);
+        downConverter.downsample_counter = 0;
     } else {
-        downConverter.f++;
+        ++downConverter.downsample_counter;
     }
 }
 
 extern "C" void ADC1_2_IRQHandler(void)
 {
-    DownConverter_tick();
     ADC1->SR = 0;
     // resetear bandera de irq
+    DownConverter_tick();
 }
 
 void bsp_init()
 {
+    DownConverter_init();
     SPI.setMOSI(PB15);
     SPI.setMISO(PB14);
     SPI.setSCLK(PB13);
