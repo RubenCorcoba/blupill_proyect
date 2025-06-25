@@ -1,32 +1,35 @@
 #include "bsp.hpp"
-#include "blocks.h"
+
 #include <Arduino.h>
-#include <SPI.h>
 #include <Ethernet.h>
+#include <SPI.h>
 
+#include "blocks.h"
 
-static EthernetClient client; // Objeto cliente para comunicación Ethernet
+static EthernetClient client;  // Objeto cliente para comunicación Ethernet
 
-
-static void ADC_DMA_Init();      // Inicialización del ADC con DMA
-static void Ethernet_Init(uint8_t pinSS);     // Inicialización del módulo Ethernet
+static void ADC_DMA_Init();                // Inicialización del ADC con DMA
+static void Ethernet_Init(uint8_t pinSS);  // Inicialización del módulo Ethernet
 
 // Buffers y variables de control
-uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2]; // Doble buffer circular
-volatile uint32_t cuenta_buffers_cargados = 0; // Contador de buffers llenados por el DMA
-volatile uint32_t cuenta_buffers_vistos = 0;   // Contador de buffers procesados en el bucle principal
+uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2];  // Doble buffer circular
+volatile uint32_t cuenta_buffers_cargados =
+    0;  // Contador de buffers llenados por el DMA
+volatile uint32_t cuenta_buffers_vistos =
+    0;  // Contador de buffers procesados en el bucle principal
 
-static void DownConverter_init(volatile uint32_t *cuentaMediosBuffer,int szBuffer,volatile uint8_t *buffer);
+static void DownConverter_init(volatile uint32_t *cuentaMediosBuffer,
+                               int szBuffer, volatile uint8_t *buffer);
 
 ////////////////////////////////////////////////////////////////
 // Función para transmitir los datos al servidor
-void transmite(uint8_t* datos, int nbytes) {
-    static byte ip_servidor[4] = {192, 168, 1, 120}; // IP del servidor
+void transmite(uint8_t *datos, int nbytes) {
+    static byte ip_servidor[4] = {192, 168, 1, 120};  // IP del servidor
 
     // Intentar conectarse si no hay conexión activa
     if (!client.connected()) {
         client.connect(ip_servidor, 4000);
-        return; // Salir si aún no se conecta
+        return;  // Salir si aún no se conecta
     }
 
     // Transmitir datos si ya está conectado
@@ -44,32 +47,33 @@ static void ADC_DMA_Init(void) {
     GPIOA->CRL &= ~(GPIO_CRL_CNF0 | GPIO_CRL_MODE0);
 
     // Configurar ADC:
-    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6; // Reloj ADC = PCLK2 / 6 = 12MHz
-    ADC1->SQR3 = 0; // Canal 0 (PA0)
-    ADC1->SMPR2 = 4 << ADC_SMPR2_SMP0_Pos; // Tiempo de muestreo (41.5 ciclos)
-    ADC1->CR1 = 0; // Sin configuración especial
+    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6;      // Reloj ADC = PCLK2 / 6 = 12MHz
+    ADC1->SQR3 = 0;                         // Canal 0 (PA0)
+    ADC1->SMPR2 = 4 << ADC_SMPR2_SMP0_Pos;  // Tiempo de muestreo (41.5 ciclos)
+    ADC1->CR1 = 0;                          // Sin configuración especial
 
-    ADC1->CR2 = ADC_CR2_ADON; // Encender ADC
-    delay(1); // Esperar estabilización
-    ADC1->CR2 |= ADC_CR2_CAL; // Calibrar ADC
-    while (ADC1->CR2 & ADC_CR2_CAL); // Esperar fin calibración
+    ADC1->CR2 = ADC_CR2_ADON;         // Encender ADC
+    delay(1);                         // Esperar estabilización
+    ADC1->CR2 |= ADC_CR2_CAL;         // Calibrar ADC
+    while (ADC1->CR2 & ADC_CR2_CAL);  // Esperar fin calibración
 
     // Modo continuo
-    ADC1->CR1 = ADC_CR1_EOCIE; // Habilita interrupcion?
+    ADC1->CR1 = ADC_CR1_EOCIE;  // Habilita interrupcion?
     ADC1->CR2 |= ADC_CR2_CONT;
-    ADC1->CR2 |= ADC_CR2_ADON; // Re-encender ADC
+    ADC1->CR2 |= ADC_CR2_ADON;  // Re-encender ADC
 
-    NVIC_EnableIRQ(ADC1_2_IRQn); // Habilitar interrupción de ADC
+    NVIC_EnableIRQ(ADC1_2_IRQn);  // Habilitar interrupción de ADC
 }
 
 ////////////////////////////////////////////////////////////////
 // Configuración del módulo Ethernet (W5100)
 static void Ethernet_Init(uint8_t pinSS) {
-    static byte mac[6] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED}; // MAC arbitraria
-    static byte ip[4] = {192, 168, 1, 33}; // IP fija del dispositivo
+    static byte mac[6] = {0xDE, 0xAD, 0xBE,
+                          0xEF, 0xFE, 0xED};  // MAC arbitraria
+    static byte ip[4] = {192, 168, 1, 33};    // IP fija del dispositivo
     Ethernet.init(pinSS);
-    Ethernet.begin(mac, ip); // Inicia el módulo con esos parámetros
-    delay(100); // Esperar a que se configure correctamente
+    Ethernet.begin(mac, ip);  // Inicia el módulo con esos parámetros
+    delay(100);               // Esperar a que se configure correctamente
 }
 
 ////////////////////////////////////////////////////////////////
@@ -96,117 +100,119 @@ static void Ethernet_Init(uint8_t pinSS) {
 //        cpol2i,cpol2q               dcpol1i,dcpol1q        dcpol2i,dcpol2q
 //   -|polo(r=24/25,fp/fsamp=3/49)|-|polo(r=1,fp/fsamp=0)|-|polo(r=1,fp/fsamp=0)|...
 //                      comb1i,comb1q     comb2i,comb2q
-//   -|downsample(7)|-|comb(d=2)      |-|comb(d=2)      |-|>>(4+13)|-|(int16_t)|-msal
+//   -|downsample(7)|-|comb(d=2)      |-|comb(d=2) |-|>>(4+13)|-|(int16_t)|-msal
 //
-static struct DownConverter_s{
+static struct DownConverter_s {
     struct Nco_s nco[1];
-    struct ConjugatePolePair_s cpol1i[1],cpol1q[1],cpol2i[1],cpol2q[1];
-    struct Comb_s comb1i[1],comb1q[1],comb2i[1],comb2q[1];
-    int32_t memComb1i[2],memComb1q[2],memComb2i[2],memComb2q[2];
-    int32_t dcpol1i[1],dcpol1q[1],dcpol2i[1],dcpol2q[1];
+    struct ConjugatePolePair_s cpol1i[1], cpol1q[1], cpol2i[1], cpol2q[1];
+    struct Comb_s comb1i[1], comb1q[1], comb2i[1], comb2q[1];
+    int32_t memComb1i[2], memComb1q[2], memComb2i[2], memComb2q[2];
+    int32_t dcpol1i[1], dcpol1q[1], dcpol2i[1], dcpol2q[1];
     unsigned downsample_counter;
-    struct Salida_s{
+    struct Salida_s {
         volatile uint8_t *bufferCircular;
         volatile uint32_t *cuentaMediosBuffers;
         volatile int szBufferCircular;
         volatile int posicion;
-    }salida;
-}downConverter;
+    } salida;
+} downConverter;
 
-static void DownConverter_init(volatile uint32_t *cuentaMediosBuffer,int szBuffer,volatile uint8_t *buffer)
-{
-    while(!szBuffer || szBuffer % 8)asm("nop"); // DEBE SER  MULTIPLO DE 8 (2x2x2)
+static void DownConverter_init(volatile uint32_t *cuentaMediosBuffer,
+                               int szBuffer, volatile uint8_t *buffer) {
+    while (!szBuffer || szBuffer % 8)
+        asm("nop");  // DEBE SER  MULTIPLO DE 8 (2x2x2)
     downConverter = (struct DownConverter_s){};
-    Nco_init(downConverter.nco,-30*6*(12.5+41.5),72000); //< 30 kHz
-    ConjugatePolePair_initRadFrec(downConverter.cpol1i,24/25,3,49);
-    ConjugatePolePair_initRadFrec(downConverter.cpol1q,24/25,3,49);
-    ConjugatePolePair_initRadFrec(downConverter.cpol2i,24/25,3,49);
-    ConjugatePolePair_initRadFrec(downConverter.cpol2q,24/25,3,49);
-    Comb_init(downConverter.comb1i,2,2,downConverter.memComb1i);
-    Comb_init(downConverter.comb1q,2,2,downConverter.memComb1q);
-    Comb_init(downConverter.comb2i,2,2,downConverter.memComb2i);
-    Comb_init(downConverter.comb2q,2,2,downConverter.memComb2q);
-    downConverter.salida.bufferCircular=buffer;
-    downConverter.salida.szBufferCircular=szBuffer;
-    downConverter.salida.cuentaMediosBuffers=cuentaMediosBuffer;
+    Nco_init(downConverter.nco, -30 * 6 * (12.5 + 41.5), 72000);  //< 30 kHz
+    ConjugatePolePair_initRadFrec(downConverter.cpol1i, 24.0 / 25, 3, 49);
+    ConjugatePolePair_initRadFrec(downConverter.cpol1q, 24.0 / 25, 3, 49);
+    ConjugatePolePair_initRadFrec(downConverter.cpol2i, 24.0 / 25, 3, 49);
+    ConjugatePolePair_initRadFrec(downConverter.cpol2q, 24.0 / 25, 3, 49);
+    Comb_init(downConverter.comb1i, 2, 2, downConverter.memComb1i);
+    Comb_init(downConverter.comb1q, 2, 2, downConverter.memComb1q);
+    Comb_init(downConverter.comb2i, 2, 2, downConverter.memComb2i);
+    Comb_init(downConverter.comb2q, 2, 2, downConverter.memComb2q);
+    downConverter.salida.bufferCircular = buffer;
+    downConverter.salida.szBufferCircular = szBuffer;
+    downConverter.salida.cuentaMediosBuffers = cuentaMediosBuffer;
     *cuentaMediosBuffer = 0;
 }
 
-static void DownConverter_output(int32_t i,int32_t q)
-{
+static void DownConverter_output(int32_t i, int32_t q) {
     auto salida = &downConverter.salida;
 
     // empaquetar I y Q como int16_t en little endian (baja y alta)
-    salida->bufferCircular[salida->posicion++] = (uint8_t)(i & 0xFF);          // I baja
-    salida->bufferCircular[salida->posicion++] = (uint8_t)((i >> 8) & 0xFF);   // I alta
-    salida->bufferCircular[salida->posicion++] = (uint8_t)(q & 0xFF);          // Q baja
-    salida->bufferCircular[salida->posicion++] = (uint8_t)((q >> 8) & 0xFF);   // Q alta
+    salida->bufferCircular[salida->posicion++] = (uint8_t)(i & 0xFF);  // I baja
+    salida->bufferCircular[salida->posicion++] =
+        (uint8_t)((i >> 8) & 0xFF);                                    // I alta
+    salida->bufferCircular[salida->posicion++] = (uint8_t)(q & 0xFF);  // Q baja
+    salida->bufferCircular[salida->posicion++] =
+        (uint8_t)((q >> 8) & 0xFF);  // Q alta
 
     // Si posicion es szBuffer/2 incremento el contador de medios buffer
-    // Si posicion es szBuffer incremento el contador de medios buffer y pongo posicion en 0
-    if (salida->posicion == salida->szBufferCircular/2){
+    // Si posicion es szBuffer incremento el contador de medios buffer y pongo
+    // posicion en 0
+    if (salida->posicion == salida->szBufferCircular / 2) {
         *salida->cuentaMediosBuffers += 1;
-        digitalWrite(PB9,0);
-    }if(salida->posicion == salida->szBufferCircular){
-        *salida->cuentaMediosBuffers += 1;
-        salida->posicion=0;
-        digitalWrite(PB9,1);
+        digitalWrite(PB9, 0);
     }
-    
+    if (salida->posicion == salida->szBufferCircular) {
+        *salida->cuentaMediosBuffers += 1;
+        salida->posicion = 0;
+        digitalWrite(PB9, 1);
+    }
 }
 
-static void DownConverter_tick(void)
-{
+static void DownConverter_tick(void) {
     constexpr int GUARD_BITS = 4;
     CplxI16 x;
-    int32_t m,mi,mq;
+    int32_t m, mi, mq;
     // DR Zero<15..12>#Unsigned<11..0>
     // Convert to signed and extend to 32 bit
     uint16_t adc_in = ADC1->DR;
-    constexpr uint16_t bits_signo = 0x1f<<11;
-    m = (int16_t)(adc_in&(1<<11) ? adc_in&(~bits_signo) : adc_in | bits_signo);
+    constexpr uint16_t bits_signo = 0x1f << 11;
+    m = (int16_t)(adc_in & (1 << 11) ? adc_in & (~bits_signo)
+                                     : adc_in | bits_signo);
 
     x = Nco_sample(downConverter.nco);
-    mi = (m*x.real) >> (15-GUARD_BITS);
-    mq = (m*x.imag) >> (15-GUARD_BITS);
+    mi = (m * x.real) >> (15 - GUARD_BITS);
+    mq = (m * x.imag) >> (15 - GUARD_BITS);
 
-    mi = ConjugatePolePair_step(downConverter.cpol1i,mi);
-    mq = ConjugatePolePair_step(downConverter.cpol1q,mq);
-    mi = ConjugatePolePair_step(downConverter.cpol2i,mi);
-    mq = ConjugatePolePair_step(downConverter.cpol2q,mq);
-    mi = poleAtFrecZero_step(downConverter.dcpol1i,mi);
-    mq = poleAtFrecZero_step(downConverter.dcpol1q,mq);
-    mi = poleAtFrecZero_step(downConverter.dcpol2i,mi);
-    mq = poleAtFrecZero_step(downConverter.dcpol2q,mq);
+    mi = ConjugatePolePair_step(downConverter.cpol1i, mi);
+    mq = ConjugatePolePair_step(downConverter.cpol1q, mq);
+    mi = ConjugatePolePair_step(downConverter.cpol2i, mi);
+    mq = ConjugatePolePair_step(downConverter.cpol2q, mq);
+    mi = poleAtFrecZero_step(downConverter.dcpol1i, mi);
+    mq = poleAtFrecZero_step(downConverter.dcpol1q, mq);
+    mi = poleAtFrecZero_step(downConverter.dcpol2i, mi);
+    mq = poleAtFrecZero_step(downConverter.dcpol2q, mq);
 
-    if (downConverter.downsample_counter==6){
-        mi = Comb_step(downConverter.comb1i,mi);
-        mq = Comb_step(downConverter.comb1q,mq);
-        mi = Comb_step(downConverter.comb2i,mi);
-        mq = Comb_step(downConverter.comb2q,mq);
-        mi = mi >> (13+GUARD_BITS);
-        mq = mq >> (13+GUARD_BITS);
-        DownConverter_output(mi,mq);
+    if (downConverter.downsample_counter == 6) {
+        mi = Comb_step(downConverter.comb1i, mi);
+        mq = Comb_step(downConverter.comb1q, mq);
+        mi = Comb_step(downConverter.comb2i, mi);
+        mq = Comb_step(downConverter.comb2q, mq);
+        mi = mi >> (13 + GUARD_BITS);
+        mq = mq >> (13 + GUARD_BITS);
+        DownConverter_output(mi, mq);
         downConverter.downsample_counter = 0;
     } else {
         ++downConverter.downsample_counter;
     }
 }
 
-extern "C" void ADC1_2_IRQHandler(void)
-{
+extern "C" void ADC1_2_IRQHandler(void) {
     ADC1->SR = 0;
     // resetear bandera de irq
     DownConverter_tick();
 }
 
-void bsp_init()
-{
-    DownConverter_init(&cuenta_buffers_cargados,sizeof(buffer_ADC),(volatile uint8_t*)buffer_ADC);
+void bsp_init() {
+    DownConverter_init(&cuenta_buffers_cargados, sizeof(buffer_ADC),
+                       (volatile uint8_t *)buffer_ADC);
     SPI.setMOSI(PB15);
     SPI.setMISO(PB14);
     SPI.setSCLK(PB13);
     RCC->AHBENR |= RCC_AHBENR_DMA1EN;
-    Ethernet_Init(PB12);    // Configura el módulo Ethernet, inicializa SPI
-    ADC_DMA_Init();     // Configura el ADC con DMA para adquisición de datos
+    Ethernet_Init(PB12);  // Configura el módulo Ethernet, inicializa SPI
+    ADC_DMA_Init();       // Configura el ADC con DMA para adquisición de datos
 }
