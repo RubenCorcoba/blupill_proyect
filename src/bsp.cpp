@@ -117,7 +117,7 @@ static void DownConverter_tick(void) {
         mq = m * q;
     }
     // Polo doble complejo
-    {
+    if(false){
         constexpr int PUNTO = 15;
         constexpr int32_t a1 = -58317;
         constexpr int32_t a2 = 30199;
@@ -183,8 +183,12 @@ static void DownConverter_tick(void) {
                 buffer[cursor] = (int16_t)mi;
                 buffer[cursor + 1] = (int16_t)mq;
                 cursor += 2;
-                if (cursor == LIMITE_1) ++cuenta_buffers_cargados;
+                if (cursor == LIMITE_1){
+                    GPIOB->BSRR = 1 << 9;
+                    ++cuenta_buffers_cargados;
+                }
                 if (cursor == LIMITE_2) {
+                    GPIOB->BRR = 1 << 9;
                     ++cuenta_buffers_cargados;
                     cursor = 0;
                 }
