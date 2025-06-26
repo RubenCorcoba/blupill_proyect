@@ -4,15 +4,14 @@
 #include <Ethernet.h>
 #include <SPI.h>
 
-#include "blocks.h"
-
 static EthernetClient client;  // Objeto cliente para comunicación Ethernet
 
 static void ADC_DMA_Init();                // Inicialización del ADC con DMA
 static void Ethernet_Init(uint8_t pinSS);  // Inicialización del módulo Ethernet
 
 // Buffers y variables de control
-uint8_t buffer_ADC[2][NMUESTRAS_BUFFER * 2];  // Doble buffer circular
+alignas(int16_t) uint8_t
+    buffer_ADC[2][NMUESTRAS_BUFFER * 2];  // Doble buffer circular
 volatile uint32_t cuenta_buffers_cargados =
     0;  // Contador de buffers llenados por el DMA
 volatile uint32_t cuenta_buffers_vistos =
@@ -95,114 +94,114 @@ static void Ethernet_Init(uint8_t pinSS) {
 // }
 
 // DownConverter
-//            nco                                         cpol1i,cpol1q
 //  m-|*exp(-2j*pi*30kHz/fsamp*k)|-|(int32_t)|-|<<4|-|polo(r=24/25,fp/fsamp=3/49)|...
-//        cpol2i,cpol2q               dcpol1i,dcpol1q        dcpol2i,dcpol2q
 //   -|polo(r=24/25,fp/fsamp=3/49)|-|polo(r=1,fp/fsamp=0)|-|polo(r=1,fp/fsamp=0)|...
-//                      comb1i,comb1q     comb2i,comb2q
 //   -|downsample(7)|-|comb(d=2)      |-|comb(d=2) |-|>>(4+13)|-|(int16_t)|-msal
-//
-static struct DownConverter_s {
-    struct Nco_s nco[1];
-    struct ConjugatePolePair_s cpol1i[1], cpol1q[1], cpol2i[1], cpol2q[1];
-    struct Comb_s comb1i[1], comb1q[1], comb2i[1], comb2q[1];
-    int32_t memComb1i[2], memComb1q[2], memComb2i[2], memComb2q[2];
-    int32_t dcpol1i[1], dcpol1q[1], dcpol2i[1], dcpol2q[1];
-    unsigned downsample_counter;
-    struct Salida_s {
-        volatile uint8_t *bufferCircular;
-        volatile uint32_t *cuentaMediosBuffers;
-        volatile int szBufferCircular;
-        volatile int posicion;
-    } salida;
-} downConverter;
-
-static void DownConverter_init(volatile uint32_t *cuentaMediosBuffer,
-                               int szBuffer, volatile uint8_t *buffer) {
-    while (!szBuffer || szBuffer % 8)
-        asm("nop");  // DEBE SER  MULTIPLO DE 8 (2x2x2)
-    downConverter = (struct DownConverter_s){};
-    Nco_init(downConverter.nco, -30 * 6 * (12.5 + 41.5), 72000);  //< 30 kHz
-    ConjugatePolePair_initRadFrec(downConverter.cpol1i, 24.0 / 25, 3, 49);
-    ConjugatePolePair_initRadFrec(downConverter.cpol1q, 24.0 / 25, 3, 49);
-    ConjugatePolePair_initRadFrec(downConverter.cpol2i, 24.0 / 25, 3, 49);
-    ConjugatePolePair_initRadFrec(downConverter.cpol2q, 24.0 / 25, 3, 49);
-    Comb_init(downConverter.comb1i, 2, 2, downConverter.memComb1i);
-    Comb_init(downConverter.comb1q, 2, 2, downConverter.memComb1q);
-    Comb_init(downConverter.comb2i, 2, 2, downConverter.memComb2i);
-    Comb_init(downConverter.comb2q, 2, 2, downConverter.memComb2q);
-    downConverter.salida.bufferCircular = buffer;
-    downConverter.salida.szBufferCircular = szBuffer;
-    downConverter.salida.cuentaMediosBuffers = cuentaMediosBuffer;
-    *cuentaMediosBuffer = 0;
-}
-
-static void DownConverter_output(int32_t i, int32_t q) {
-    auto salida = &downConverter.salida;
-
-    // empaquetar I y Q como int16_t en little endian (baja y alta)
-    salida->bufferCircular[salida->posicion++] = (uint8_t)(i & 0xFF);  // I baja
-    salida->bufferCircular[salida->posicion++] =
-        (uint8_t)((i >> 8) & 0xFF);                                    // I alta
-    salida->bufferCircular[salida->posicion++] = (uint8_t)(q & 0xFF);  // Q baja
-    salida->bufferCircular[salida->posicion++] =
-        (uint8_t)((q >> 8) & 0xFF);  // Q alta
-
-    // Si posicion es szBuffer/2 incremento el contador de medios buffer
-    // Si posicion es szBuffer incremento el contador de medios buffer y pongo
-    // posicion en 0
-    if (salida->posicion == salida->szBufferCircular / 2) {
-        *salida->cuentaMediosBuffers += 1;
-        digitalWrite(PB9, 0);
-    }
-    if (salida->posicion == salida->szBufferCircular) {
-        *salida->cuentaMediosBuffers += 1;
-        salida->posicion = 0;
-        digitalWrite(PB9, 1);
-    }
-}
-
 static void DownConverter_tick(void) {
-    constexpr int GUARD_BITS = 4;
-    CplxI16 x;
-    int32_t m, mi, mq;
-    // DR Zero<15..12>#Unsigned<11..0>
-    // Convert to signed and extend to 32 bit
-    uint16_t adc_in = ADC1->DR;
-    constexpr uint16_t bits_signo = 0x1f << 11;
-    m = (int16_t)(adc_in & (1 << 11) ? adc_in & (~bits_signo)
-                                     : adc_in | bits_signo);
+    constexpr int PUNTO_OL = 14;
+    static int32_t m, oli = 1 << PUNTO_OL, olq, mi, mq;
+    const int32_t adc_in = ADC1->DR;
 
-    x = Nco_sample(downConverter.nco);
-    mi = (m * x.real) >> (15 - GUARD_BITS);
-    mq = (m * x.imag) >> (15 - GUARD_BITS);
+    // Conversión a entero con signo y extensión de signo
+    m = adc_in & (1 << 11) ? adc_in & (int16_t)0x07ff
+                           : adc_in | (int16_t)0xfffff800;
 
-    mi = ConjugatePolePair_step(downConverter.cpol1i, mi);
-    mq = ConjugatePolePair_step(downConverter.cpol1q, mq);
-    mi = ConjugatePolePair_step(downConverter.cpol2i, mi);
-    mq = ConjugatePolePair_step(downConverter.cpol2q, mq);
-    mi = poleAtFrecZero_step(downConverter.dcpol1i, mi);
-    mq = poleAtFrecZero_step(downConverter.dcpol1q, mq);
-    mi = poleAtFrecZero_step(downConverter.dcpol2i, mi);
-    mq = poleAtFrecZero_step(downConverter.dcpol2q, mq);
-
-    if (downConverter.downsample_counter == 6) {
-        mi = Comb_step(downConverter.comb1i, mi);
-        mq = Comb_step(downConverter.comb1q, mq);
-        mi = Comb_step(downConverter.comb2i, mi);
-        mq = Comb_step(downConverter.comb2q, mq);
-        mi = mi >> (13 + GUARD_BITS);
-        mq = mq >> (13 + GUARD_BITS);
-        DownConverter_output(mi, mq);
-        downConverter.downsample_counter = 0;
-    } else {
-        ++downConverter.downsample_counter;
+    // Paso de oscilador local 30 kHz y mezcla
+    {
+        // exp. punto fijo 2**-15
+        constexpr int PUNTO = 15;
+        constexpr int32_t pasoi = 21670;
+        constexpr int32_t pasoq = -24580;
+        int i = (oli * pasoi - olq * pasoq) >> PUNTO;
+        int q = (oli * pasoq + olq * pasoi) >> PUNTO;
+        oli = i;
+        olq = q;
+        mi = m * i;
+        mq = m * q;
+    }
+    // Polo doble complejo
+    {
+        constexpr int PUNTO = 15;
+        constexpr int32_t a1 = -58317;
+        constexpr int32_t a2 = 30199;
+        static int32_t d1i[2], d1q[2], d2i[2], d2q[2], fase;
+        mi = (mi - a1 * d1i[fase % 2] - a2 * d1i[(1 + fase) % 2]) >> PUNTO;
+        mq = (mq - a1 * d1q[fase % 2] - a2 * d1q[(1 + fase) % 2]) >> PUNTO;
+        d1i[(fase + 1) % 2] = mi;
+        d1q[(fase + 1) % 2] = mq;
+        mi = (mi - a1 * d2i[fase % 2] - a2 * d2i[(1 + fase) % 2]) >> PUNTO;
+        mq = (mq - a1 * d2q[fase % 2] - a2 * d2q[(1 + fase) % 2]) >> PUNTO;
+        d2i[(fase + 1) % 2] = mi;
+        d2q[(fase + 1) % 2] = mq;
+        ++fase;
+    }
+    // integrador doble
+    {
+        static int32_t d1i, d1q, d2i, d2q;
+        mi += d1i;
+        mq += d1q;
+        d1i = mi;
+        d1q = mq;
+        mi += d2i;
+        mq += d2q;
+        d2i = mi;
+        d2q = mq;
+    }
+    // submuestreo
+    {
+        static int muestra = 0;
+        if (muestra == 6) {
+            muestra = 0;
+            // 2xcomb delay 2
+            {
+                static int32_t d1i[2], d1q[2], d2i[2], d2q[2], fase;
+                int32_t ai, aq;
+                ai = mi - d1i[(fase + 1) % 2];
+                aq = mq - d1q[(fase + 1) % 2];
+                d1i[(fase + 1) % 2] = mi;
+                d1q[(fase + 1) % 2] = mq;
+                mi = ai;
+                mq = aq;
+                ai = mi - d2i[(fase + 1) % 2];
+                aq = mq - d2q[(fase + 1) % 2];
+                d2i[(fase + 1) % 2] = mi;
+                d2q[(fase + 1) % 2] = mq;
+                mi = ai;
+                mq = aq;
+                ++fase;
+            }
+            // Ajuste de ganancia
+            {
+                mi >>= 7;
+                mq >>= 7;
+            }
+            // salida
+            {
+                constexpr int LIMITE_2 = sizeof(buffer_ADC) / sizeof(int16_t),
+                              LIMITE_1 = LIMITE_2 / 2;
+                static_assert(LIMITE_2 % 4 == 0);
+                static int cursor;
+                volatile int16_t *const buffer =
+                    (volatile int16_t *)(buffer_ADC);
+                buffer[cursor] = (int16_t)mi;
+                buffer[cursor + 1] = (int16_t)mq;
+                cursor += 2;
+                if (cursor == LIMITE_1) ++cuenta_buffers_cargados;
+                if (cursor == LIMITE_2) {
+                    ++cuenta_buffers_cargados;
+                    cursor = 0;
+                }
+            }
+        } else {
+            ++muestra;
+        }
     }
 }
 
 extern "C" void ADC1_2_IRQHandler(void) {
-    ADC1->SR = 0;
     // resetear bandera de irq
+    ADC1->SR = ~ADC_SR_EOC;
+    // Procesa muestras
     DownConverter_tick();
 }
 
