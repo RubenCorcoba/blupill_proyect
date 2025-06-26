@@ -29,7 +29,9 @@ void transmite(uint8_t *datos, int nbytes) {
     }
 
     // Transmitir datos si ya está conectado
+    GPIOC->BRR = 1 << 13;
     client.write(datos, nbytes);
+    GPIOC->BSRR = 1 << 13; 
 }
 
 ////////////////////////////////////////////////////////////////
@@ -43,9 +45,9 @@ static void ADC_DMA_Init(void) {
     GPIOA->CRL &= ~(GPIO_CRL_CNF0 | GPIO_CRL_MODE0);
 
     // Configurar ADC:
-    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6;      // Reloj ADC = PCLK2 / 6 = 12MHz
+    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV8;      // Reloj ADC = PCLK2 / 6 = 12MHz
     ADC1->SQR3 = 0;                         // Canal 0 (PA0)
-    ADC1->SMPR2 = 4 << ADC_SMPR2_SMP0_Pos;  // Tiempo de muestreo (41.5 ciclos)
+    ADC1->SMPR2 = 3 << ADC_SMPR2_SMP0_Pos;  // Tiempo de muestreo (28.5 ciclos)
     ADC1->CR1 = 0;                          // Sin configuración especial
 
     ADC1->CR2 = ADC_CR2_ADON;         // Encender ADC
@@ -94,11 +96,17 @@ static void Ethernet_Init(uint8_t pinSS) {
 //  m-|*exp(-2j*pi*30kHz/fsamp*k)|-|(int32_t)|-|<<4|-|polo(r=24/25,fp/fsamp=3/49)|...
 //   -|polo(r=24/25,fp/fsamp=3/49)|-|polo(r=1,fp/fsamp=0)|-|polo(r=1,fp/fsamp=0)|...
 //   -|downsample(7)|-|comb(d=2)      |-|comb(d=2) |-|>>(4+13)|-|(int16_t)|-msal
+//#define TRACK_CONVERSION
+#define TRACK_CARGA
 static void DownConverter_tick(void) {
     constexpr int PUNTO_OL = 14;
-    static int32_t m, oli = 1 << PUNTO_OL, olq, mi, mq;
+    constexpr int32_t AMPLITUD = 1 << PUNTO_OL;
+    constexpr int SUBMUESTREO = 7;
+    static int32_t m, oli = AMPLITUD, olq, mi, mq;
     const int32_t adc_in = ADC1->DR;
-
+#ifdef TRACK_CONVERSION
+    GPIOB->BSRR = 1 << 9;
+#endif
     // Conversión a entero con signo y extensión de signo
     m = adc_in & (1 << 11) ? adc_in & (int16_t)0x07ff
                            : adc_in | (int16_t)0xfffff800;
@@ -147,7 +155,7 @@ static void DownConverter_tick(void) {
     // submuestreo
     {
         static int muestra = 0;
-        if (muestra == 6) {
+        if (muestra == SUBMUESTREO-1) {
             muestra = 0;
             // 2xcomb delay 2
             {
@@ -169,8 +177,8 @@ static void DownConverter_tick(void) {
             }
             // Ajuste de ganancia
             {
-                mi >>= 7;
-                mq >>= 7;
+                mi >>= 14+3;
+                mq >>= 14+3;
             }
             // salida
             {
@@ -184,19 +192,33 @@ static void DownConverter_tick(void) {
                 buffer[cursor + 1] = (int16_t)mq;
                 cursor += 2;
                 if (cursor == LIMITE_1){
-                    GPIOB->BSRR = 1 << 9;
                     ++cuenta_buffers_cargados;
+#ifdef TRACK_CARGA
+                    GPIOB->BSRR = 1 << 9;
+#endif
                 }
                 if (cursor == LIMITE_2) {
-                    GPIOB->BRR = 1 << 9;
                     ++cuenta_buffers_cargados;
                     cursor = 0;
+#ifdef TRACK_CARGA
+                    GPIOB->BRR = 1 << 9;
+#endif
                 }
+            }
+            if (oli > AMPLITUD || oli < -AMPLITUD || (olq >-8 && olq <8)){
+                oli = oli>0? AMPLITUD : -AMPLITUD;
+                olq = 0;
+            }else if(olq > AMPLITUD || olq < -AMPLITUD || (oli >-8 && oli <8)){
+                oli = 0;
+                olq = olq>0? AMPLITUD : -AMPLITUD;
             }
         } else {
             ++muestra;
         }
     }
+#ifdef TRACK_CONVERSION
+    GPIOB->BRR = 1 << 9;
+#endif
 }
 
 extern "C" void ADC1_2_IRQHandler(void) {

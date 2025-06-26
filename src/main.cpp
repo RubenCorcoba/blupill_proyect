@@ -9,7 +9,6 @@
 void setup(void) {
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, 1);
-
     pinMode(PB9, OUTPUT); 
     digitalWrite(PB9, LOW);
     bsp_init();
@@ -27,10 +26,8 @@ void loop(void) {
 
     // Si hay un nuevo buffer disponible
     if (cuenta_buffers_cargados == cuenta_buffers_vistos + 1) {
-        digitalWrite(LED_BUILTIN, 0);
         transmite(buffer_ADC[cuenta_buffers_vistos % 2], NMUESTRAS_BUFFER * 2); // Enviar datos
         cuenta_buffers_vistos++; // Registrar que este buffer ya fue procesado
-        digitalWrite(LED_BUILTIN, 1);
     } else {
         // sincronizar para evitar desbordes
         cuenta_buffers_vistos = cuenta_buffers_cargados;
