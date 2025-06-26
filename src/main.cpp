@@ -7,12 +7,12 @@
 ////////////////////////////////////////////////////////////////
 // Función setup: Configuración inicial
 void setup(void) {
-    bsp_init();
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, 1);
 
     pinMode(PB9, OUTPUT); 
     digitalWrite(PB9, LOW);
+    bsp_init();
 }
 
 
