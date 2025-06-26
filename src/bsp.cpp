@@ -17,9 +17,6 @@ volatile uint32_t cuenta_buffers_cargados =
 volatile uint32_t cuenta_buffers_vistos =
     0;  // Contador de buffers procesados en el bucle principal
 
-static void DownConverter_init(volatile uint32_t *cuentaMediosBuffer,
-                               int szBuffer, volatile uint8_t *buffer);
-
 ////////////////////////////////////////////////////////////////
 // Función para transmitir los datos al servidor
 void transmite(uint8_t *datos, int nbytes) {
@@ -206,8 +203,6 @@ extern "C" void ADC1_2_IRQHandler(void) {
 }
 
 void bsp_init() {
-    DownConverter_init(&cuenta_buffers_cargados, sizeof(buffer_ADC),
-                       (volatile uint8_t *)buffer_ADC);
     SPI.setMOSI(PB15);
     SPI.setMISO(PB14);
     SPI.setSCLK(PB13);
