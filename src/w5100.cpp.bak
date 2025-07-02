@@ -303,18 +303,28 @@ static void transferSpi2DmaBegin(void)
 	DMA1_Channel4->CPAR=(uint32_t)&SPI2->DR;
 	SPI2->CR2=3;
 }
-static void transferSpi2DmaTransfer(uint8_t *source,uint8_t *dest,uint16_t len)
+static void transferSpi2DmaTransfer(const uint8_t *source,uint8_t *dest,uint16_t len)
 {
+	static int dummy_dst[1];
+	static const int dummy_src[1]={0};
+
 	while(SPI2->SR & SPI_SR_BSY);// Espera puerto listo
 	(void)SPI2->DR;
     (void)SPI2->SR; // limpia posible condicion overrun
-	DMA1_Channel5->CMAR=(uint32_t)source;
+	if(source){
+		DMA1_Channel5->CMAR=(uint32_t)source;
+	}else{
+		DMA1_Channel5->CMAR=(uint32_t)dummy_src;
+	}
 	DMA1_Channel5->CNDTR=len;
-	DMA1_Channel4->CMAR=(uint32_t)dest;
+	if(dest)
+		DMA1_Channel4->CMAR=(uint32_t)dest;
+	else
+		DMA1_Channel4->CMAR=(uint32_t)dummy_dst;
 	DMA1_Channel4->CNDTR=len;
 
-	DMA1_Channel4->CCR=DMA_CCR_MINC | DMA_CCR_EN;
-	DMA1_Channel5->CCR=DMA_CCR_MINC | DMA_CCR_DIR |DMA_CCR_EN ;//0x91;
+	DMA1_Channel4->CCR=(dest ? DMA_CCR_MINC:0UL) | DMA_CCR_EN;
+	DMA1_Channel5->CCR=(source ? DMA_CCR_MINC:0UL) | DMA_CCR_DIR |DMA_CCR_EN ;//0x91;
 
 	while(DMA1_Channel5->CNDTR || DMA1_Channel4->CNDTR);
 	while(SPI2->SR & SPI_SR_BSY);
@@ -331,21 +341,21 @@ static void transferSpi2DmaEnd(void)
 uint16_t W5100Class::write(uint16_t addr, const uint8_t *buf, uint16_t len)
 {
 	uint8_t cmd[8];
+	static struct {
+		PinName name;
+		GPIO_TypeDef * port;
+		uint32_t pin;
+	}ss;
+	ss.name = digitalPinToPinName(ss_pin);
+	if(ss.name != NC){
+		ss.port = get_GPIO_Port(STM_PORT(ss.name));
+		ss.pin  = STM_LL_GPIO_PIN(ss.name);
+	}else{
+		ss.port = NULL;
+	}
+	while(!ss.port);
 	if (chip == 51) {
 		// setSS -> digitalWrite ss_pin LOW -> (p:= digitalPinToPinName ss_pin; digitalWriteFast p) -> (port := get_GP) 
-		static struct {
-			PinName name;
-			GPIO_TypeDef * port;
-			uint32_t pin;
-		}ss;
-		ss.name = digitalPinToPinName(ss_pin);
-		if(ss.name != NC){
-			ss.port = get_GPIO_Port(STM_PORT(ss.name));
-			ss.pin  = STM_LL_GPIO_PIN(ss.name);
-		}else{
-			ss.port = NULL;
-		}
-		while(!ss.port);
 		transferSpi2DmaBegin();
 		for (uint16_t i=0; i<len; i++) {
 			LL_GPIO_ResetOutputPin(ss.port,ss.pin);
@@ -418,22 +428,27 @@ uint16_t W5100Class::write(uint16_t addr, const uint8_t *buf, uint16_t len)
 			cmd[2] = ((addr >> 6) & 0xE0) | 0x1C; // 2K buffers
 			#endif
 		}
-		if (len <= 5) {
-			for (uint8_t i=0; i < len; i++) {
-				cmd[i + 3] = buf[i];
-			}
-			SPI.transfer(cmd, len + 3);
-		} else {
-			SPI.transfer(cmd, 3);
-#ifdef SPI_HAS_TRANSFER_BUF
-			SPI.transfer(buf, NULL, len);
-#else
-			// TODO: copy 8 bytes at a time to cmd[] and block transfer
-			for (uint16_t i=0; i < len; i++) {
-				SPI.transfer(buf[i]);
-			}
-#endif
-		}
+
+//		if (len <= 5) {
+//			for (uint8_t i=0; i < len; i++) {
+//				cmd[i + 3] = buf[i];
+//			}
+//			SPI.transfer(cmd, len + 3);
+//		} else {
+//			SPI.transfer(cmd, 3);
+// #ifdef SPI_HAS_TRANSFER_BUF
+// 			SPI.transfer(buf, NULL, len);
+// #else
+// 			TODO: copy 8 bytes at a time to cmd[] and block transfer
+// 			for (uint16_t i=0; i < len; i++) {
+// 				SPI.transfer(buf[i]);
+// 			}
+// #endif
+//		}
+		transferSpi2DmaBegin();
+		transferSpi2DmaTransfer(cmd,NULL,3);
+		transferSpi2DmaTransfer(buf,NULL,len);
+		transferSpi2DmaEnd();
 		resetSS();
 	}
 	return len;
@@ -507,9 +522,13 @@ uint16_t W5100Class::read(uint16_t addr, uint8_t *buf, uint16_t len)
 			cmd[2] = ((addr >> 6) & 0xE0) | 0x18; // 2K buffers
 			#endif
 		}
-		SPI.transfer(cmd, 3);
-		memset(buf, 0, len);
-		SPI.transfer(buf, len);
+		transferSpi2DmaBegin();
+		transferSpi2DmaTransfer(cmd,NULL,3);
+		transferSpi2DmaTransfer(NULL,buf,len);
+		transferSpi2DmaEnd();
+//		SPI.transfer(cmd, 3);
+//		memset(buf, 0, len);
+//		SPI.transfer(buf, len);
 		resetSS();
 	}
 	return len;

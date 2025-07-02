@@ -28,7 +28,9 @@ void transmite(uint8_t* datos, int nbytes) {
     }
 
     // Transmitir datos si ya está conectado
+    GPIOC->BRR = 1 << 13;
     client.write(datos, nbytes);
+    GPIOC->BSRR = 1 << 13;
 }
 
 ////////////////////////////////////////////////////////////////
@@ -90,14 +92,14 @@ extern "C" void DMA1_Channel1_IRQHandler(void) {
     if (DMA1->ISR & DMA_ISR_HTIF1) {
         DMA1->IFCR |= DMA_IFCR_CHTIF1; // Limpiar bandera
         cuenta_buffers_cargados++;    // Registrar nuevo buffer disponible
-        digitalWrite((PB9), !digitalRead(PB9));  // Toggle
+        GPIOB->BSRR = 1 << 9;
     }
 
     // Interrupción por buffer completo lleno
     if (DMA1->ISR & DMA_ISR_TCIF1) {
         DMA1->IFCR |= DMA_IFCR_CTCIF1; // Limpiar bandera
         cuenta_buffers_cargados++;    // Registrar nuevo buffer disponible
-        digitalWrite(PB9, !digitalRead(PB9));  // Toggle
+        GPIOB->BRR = 1 << 9;
     }
 }
 
