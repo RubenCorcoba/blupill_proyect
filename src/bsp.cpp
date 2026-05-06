@@ -43,6 +43,7 @@ static void ADC_DMA_Init(void) {
 
     // Configurar PA0 como entrada analógica
     GPIOA->CRL &= ~(GPIO_CRL_CNF0 | GPIO_CRL_MODE0);
+    GPIOA->CRL &= ~(GPIO_CRL_CNF1 | GPIO_CRL_MODE1);
 
     // Configurar ADC:
 
