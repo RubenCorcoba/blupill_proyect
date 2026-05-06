@@ -38,7 +38,7 @@ void transmite(uint8_t* datos, int nbytes) {
 // Configuración del ADC con DMA
 static void ADC_DMA_Init(void) {
     // Activar relojes necesarios
-    RCC->APB2ENR |= RCC_APB2ENR_ADC1EN | RCC_APB2ENR_IOPAEN;
+    RCC->APB2ENR |= RCC_APB2ENR_ADC1EN | RCC_APB2ENR_IOPAEN | RCC_APB2ENR_ADC2EN;
     RCC->AHBENR |= RCC_AHBENR_DMA1EN;
 
     // Configurar PA0 como entrada analógica
