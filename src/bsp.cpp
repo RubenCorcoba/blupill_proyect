@@ -47,9 +47,10 @@ static void ADC_DMA_Init(void) {
 
     // Configurar ADC:
 
-    const uint32_t SMPR2_VAL =
-        0b101U << ADC_SMPR2_SMP0_Pos;   // Tiempo de muestreo (55.5 ciclos)
-                                        //
+    const uint32_t SMPR2_VAL = // Tiempo de muestreo (55.5 ciclos)
+        (0b101U << ADC_SMPR2_SMP0_Pos) +  // Canal 0 55.5 ciclos
+        (0b101U << ADC_SMPR2_SMP1_Pos);   // Canal 1 55.5 ciclos
+                                        
     RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6;  // Reloj ADC = PCLK2 / 6 = 12MHz
     ADC1->CR1 = 0;
     ADC1->SQR1 = 0;
@@ -76,6 +77,8 @@ static void ADC_DMA_Init(void) {
 
     // Modo continuo + DMA habilitado
     ADC1->CR2 |= ADC_CR2_CONT | ADC_CR2_DMA;
+    ADC2->CR2 |= ADC_CR2_CONT;
+
     ADC2->CR2 |= ADC_CR2_ADON;
     ADC1->CR2 |= ADC_CR2_ADON;  // Re-encender ADC
 
